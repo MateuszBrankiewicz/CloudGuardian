@@ -11,6 +11,7 @@ pub mod cloud_guardian {
 }
 
 pub mod parser;
+pub mod graph;
 
 use cloud_guardian::InfrastructureResource;
 use cloud_guardian::scanner_service_client::ScannerServiceClient;
@@ -58,6 +59,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         estimated_cost: 150.50,
         tags: HashMap::new(),
         is_public: false,
+        dependencies: Vec::new(),
     });
 
     info!("📤 Wysyłanie raportu...");

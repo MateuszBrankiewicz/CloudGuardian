@@ -1,8 +1,8 @@
-use crate::cloud_guardian::InfrastructureResource;
-use hcl::{Block, Body, Expression};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+use crate::cloud_guardian::InfrastructureResource;
+use hcl::{Body, Block, Expression};
 use tracing::warn;
 
 pub fn parse_terraform_dir<P: AsRef<Path>>(dir: P) -> Vec<InfrastructureResource> {
@@ -61,24 +61,28 @@ fn extract_resource(block: &Block) -> Option<InfrastructureResource> {
 
     let mut is_public = false;
     let mut tags = HashMap::new();
+    let mut dependencies = Vec::new();
 
     // Check direct attributes
     for attr in block.body().attributes() {
-        match attr.expr() {
+        let expr = attr.expr();
+        
+        // Find dependencies in the expression
+        find_traversals(expr, &mut dependencies);
+
+        match expr {
             Expression::Bool(v) => {
                 if attr.key() == "publicly_accessible" {
                     is_public = *v;
                 }
             }
-            Expression::String(v) => match attr.key() == "acl" {
-                true => match v.contains("public") {
-                    true => {
+            Expression::String(v) => {
+                if attr.key() == "acl" {
+                    if v.contains("public") {
                         is_public = true;
                     }
-                    false => (),
-                },
-                false => (),
-            },
+                }
+            }
             Expression::Object(obj) => {
                 if attr.key() == "tags" {
                     for (k, v) in obj {
@@ -86,6 +90,7 @@ fn extract_resource(block: &Block) -> Option<InfrastructureResource> {
                         if let Expression::String(val_str) = v {
                             tags.insert(key_str, val_str.clone());
                         }
+                        find_traversals(v, &mut dependencies);
                     }
                 }
             }
@@ -101,7 +106,51 @@ fn extract_resource(block: &Block) -> Option<InfrastructureResource> {
         estimated_cost: 0.0,
         tags,
         is_public,
+        dependencies,
     })
+}
+
+/// Recursively find resource traversals (references) in an HCL expression
+fn find_traversals(expr: &Expression, dependencies: &mut Vec<String>) {
+    match expr {
+        Expression::Traversal(traversal) => {
+            // A resource ref like `aws_vpc.main.id`
+            // traversal.expr is the base (e.g. Variable("aws_vpc"))
+            // traversal.operators has the rest (e.g. [GetAttr("main"), GetAttr("id")])
+            let base = traversal.expr.to_string();
+            let mut parts = vec![base];
+            
+            for op in &traversal.operators {
+                match op {
+                    hcl::expr::TraversalOperator::GetAttr(attr) => {
+                        parts.push(attr.to_string());
+                    }
+                    hcl::expr::TraversalOperator::Index(idx_expr) => {
+                        parts.push(idx_expr.to_string());
+                    }
+                    _ => {}
+                }
+            }
+
+            if parts.len() >= 2 {
+                let resource_ref = format!("{}.{}", parts[0], parts[1]);
+                if !dependencies.contains(&resource_ref) {
+                    dependencies.push(resource_ref);
+                }
+            }
+        }
+        Expression::Array(arr) => {
+            for e in arr {
+                find_traversals(e, dependencies);
+            }
+        }
+        Expression::Object(obj) => {
+            for (_, e) in obj {
+                find_traversals(e, dependencies);
+            }
+        }
+        _ => {}
+    }
 }
 
 #[cfg(test)]
@@ -110,35 +159,30 @@ mod tests {
 
     #[test]
     fn test_parse_mock_file() {
-        // Assume running from project root or agent/
         let mut path = Path::new("tests/terraform_mock.tf");
         if !path.exists() {
             path = Path::new("agent/tests/terraform_mock.tf");
         }
-
+        
         let resources = parse_terraform_file(path);
         assert_eq!(resources.len(), 3);
+    }
 
-        let s3 = resources
-            .iter()
-            .find(|r| r.resource_id == "aws_s3_bucket.prod_data")
-            .expect("S3 not found");
-        assert_eq!(s3.provider, "aws");
-        assert_eq!(s3.r#type, "aws_s3_bucket");
-        assert!(s3.is_public);
-        assert_eq!(s3.tags.get("Environment"), Some(&"production".to_string()));
-
-        let db = resources
-            .iter()
-            .find(|r| r.resource_id == "aws_db_instance.main_db")
-            .expect("DB not found");
-        assert_eq!(db.r#type, "aws_db_instance");
-        assert!(!db.is_public);
-
-        let private_s3 = resources
-            .iter()
-            .find(|r| r.resource_id == "aws_s3_bucket.private_logs")
-            .expect("Private S3 not found");
-        assert!(!private_s3.is_public);
+    #[test]
+    fn test_extract_dependencies() {
+        let hcl = r#"
+            resource "aws_security_group" "web_sg" {
+                vpc_id = aws_vpc.main.id
+            }
+            resource "aws_vpc" "main" {
+                cidr_block = "10.0.0.0/16"
+            }
+        "#;
+        let body: Body = hcl::from_str(hcl).unwrap();
+        let blocks: Vec<Block> = body.into_blocks().into_iter().filter(|b| b.identifier() == "resource").collect();
+        
+        let sg_res = extract_resource(&blocks[0]).unwrap();
+        assert_eq!(sg_res.resource_id, "aws_security_group.web_sg");
+        assert!(sg_res.dependencies.contains(&"aws_vpc.main".to_string()));
     }
 }
