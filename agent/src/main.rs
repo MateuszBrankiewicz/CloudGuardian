@@ -13,6 +13,7 @@ pub mod cloud_guardian {
 
 pub mod parser;
 pub mod graph;
+pub mod pii;
 
 use cloud_guardian::InfrastructureResource;
 use cloud_guardian::scanner_service_client::ScannerServiceClient;
