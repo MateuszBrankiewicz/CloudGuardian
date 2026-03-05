@@ -1,0 +1,5 @@
+id,name,description,comment
+1,Jan Kowalski,Mój pesel to 44051401359 i mail jan@wp.pl,To jest poprawny PESEL
+2,Anna Nowak,Używam karty 1234567812345670,To jest ZŁA karta (nie przejdzie algorytmu Luhna)
+3,Test User,Karta 4532150011223344,To jest POPRAWNA karta VISA (powinna przejść Luhna)
+4,Zwykły Wpis,Nic tu nie ma,Czysto.
