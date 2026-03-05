@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -20,6 +21,7 @@ CREATE TABLE IF NOT EXISTS resources (
     tags JSONB,
     is_public BOOLEAN NOT NULL,
     dependencies JSONB,
+    ai_recommendation TEXT,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -45,6 +47,10 @@ func InitDB(dataSourceName string) (*DB, error) {
 	if _, err := db.Exec(schema); err != nil {
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}
+
+	// Simple migrations: add columns if they don't exist
+	_, _ = db.Exec("ALTER TABLE resources ADD COLUMN IF NOT EXISTS ai_recommendation TEXT")
+	_, _ = db.Exec("ALTER TABLE resources ADD COLUMN IF NOT EXISTS dependencies JSONB")
 
 	log.Println("✅ Database initialized")
 	return &DB{db}, nil
@@ -94,5 +100,43 @@ func (db *DB) SavePIIFinding(f *pb.PIIResult) error {
 		VALUES ($1, $2, $3, $4)
 	`
 	_, err := db.Exec(query, f.ResourceId, f.DataType, f.Confidence, f.OccurrenceCount)
+	return err
+}
+
+type PIIFinding struct {
+	PiiType         string  `db:"pii_type"`
+	OccurrenceCount int32   `db:"occurrence_count"`
+	Confidence      float32 `db:"confidence"`
+}
+
+func (db *DB) GetResourceWithFindings(resourceID string) (*pb.InfrastructureResource, []PIIFinding, error) {
+	var res pb.InfrastructureResource
+	var tagsRaw, depsRaw []byte
+	var aiRec sql.NullString
+
+	err := db.QueryRow(`SELECT resource_id, provider, resource_type, cost, tags, is_public, dependencies, ai_recommendation 
+		FROM resources WHERE resource_id = $1`, resourceID).Scan(
+		&res.ResourceId, &res.Provider, &res.Type, &res.EstimatedCost, &tagsRaw, &res.IsPublic, &depsRaw, &aiRec)
+	
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if tagsRaw != nil {
+		json.Unmarshal(tagsRaw, &res.Tags)
+	}
+	if depsRaw != nil {
+		json.Unmarshal(depsRaw, &res.Dependencies)
+	}
+
+	var findings []PIIFinding
+	err = db.Select(&findings, "SELECT pii_type, occurrence_count, confidence FROM pii_findings WHERE resource_id = $1", resourceID)
+	
+	return &res, findings, err
+}
+
+func (db *DB) UpdateAIRecommendation(resourceID, recommendation string) error {
+	_, err := db.Exec("UPDATE resources SET ai_recommendation = $1, updated_at = $2 WHERE resource_id = $3", 
+		recommendation, time.Now(), resourceID)
 	return err
 }

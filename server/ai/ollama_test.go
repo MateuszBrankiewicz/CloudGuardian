@@ -38,7 +38,7 @@ func TestOllamaIntegration(t *testing.T) {
 	}
 
 	if len(tags.Models) == 0 {
-		t.Log("Ollama is running but has no models pulled. Try 'ollama pull llama3'")
+		t.Log("Ollama is running but has no models pulled. Try 'ollama pull llama3:latest'")
 		t.Skip("No models found in Ollama, cannot test Generate.")
 		return
 	}
