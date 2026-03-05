@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS resources (
     cost DOUBLE PRECISION NOT NULL,
     tags JSONB,
     is_public BOOLEAN NOT NULL,
+    dependencies JSONB,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );`
 
@@ -46,15 +47,21 @@ func (db *DB) SaveResource(r *pb.InfrastructureResource) error {
 		return fmt.Errorf("failed to marshal tags: %w", err)
 	}
 
+	depsJSON, err := json.Marshal(r.Dependencies)
+	if err != nil {
+		return fmt.Errorf("failed to marshal dependencies: %w", err)
+	}
+
 	query := `
-		INSERT INTO resources (resource_id, provider, resource_type, cost, tags, is_public, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO resources (resource_id, provider, resource_type, cost, tags, is_public, dependencies, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (resource_id) DO UPDATE SET
 			provider = EXCLUDED.provider,
 			resource_type = EXCLUDED.resource_type,
 			cost = EXCLUDED.cost,
 			tags = EXCLUDED.tags,
 			is_public = EXCLUDED.is_public,
+			dependencies = EXCLUDED.dependencies,
 			updated_at = EXCLUDED.updated_at
 	`
 
@@ -65,6 +72,7 @@ func (db *DB) SaveResource(r *pb.InfrastructureResource) error {
 		r.EstimatedCost,
 		tagsJSON,
 		r.IsPublic,
+		depsJSON,
 		time.Now(),
 	)
 

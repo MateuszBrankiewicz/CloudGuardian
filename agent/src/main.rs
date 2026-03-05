@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::time::Duration;
+use std::env;
 use tonic::Request;
 use tokio::time::sleep;
 use tracing::{info, warn, error};
@@ -15,6 +16,7 @@ pub mod graph;
 
 use cloud_guardian::InfrastructureResource;
 use cloud_guardian::scanner_service_client::ScannerServiceClient;
+use graph::DependencyGraph;
 
 async fn connect_with_retry(addr: String, max_retries: u32) -> Result<ScannerServiceClient<tonic::transport::Channel>, Box<dyn Error>> {
     let mut retry_count = 0;
@@ -43,31 +45,54 @@ async fn connect_with_retry(addr: String, max_retries: u32) -> Result<ScannerSer
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     tracing_subscriber::fmt::init();
-    info!("🚀 Startujemy Agenta...");
+    info!("🚀 Startujemy Agenta CloudGuardian...");
 
-    let mut client = connect_with_retry("http://[::1]:50051".to_string(), 5).await?;
+    // [AC 3] Ścieżka do folderu jako argument CLI
+    let args: Vec<String> = env::args().collect();
+    let scan_path = if args.len() > 1 {
+        &args[1]
+    } else {
+        "."
+    };
 
-    let mut metadata_map = HashMap::new();
-    metadata_map.insert("env".to_string(), "production".to_string());
-    metadata_map.insert("region".to_string(), "eu-central-1".to_string());
+    info!("🔍 Skanowanie folderu: {}", scan_path);
 
-    let request = Request::new(InfrastructureResource {
-        resource_id: "s3-prod.data".into(),
-        provider: "aws".into(),
-        r#type: "aws_s3_bucket".into(),
-        metadata: metadata_map,
-        estimated_cost: 150.50,
-        tags: HashMap::new(),
-        is_public: false,
-        dependencies: Vec::new(),
-    });
+    // [AC 1] Pipeline: Skanuj folder -> Buduj Graf
+    let resources = parser::parse_terraform_dir(scan_path);
+    info!("📦 Znaleziono {} zasobów w plikach .tf", resources.len());
 
-    info!("📤 Wysyłanie raportu...");
+    let mut graph = DependencyGraph::new();
+    for res in resources {
+        graph.add_resource(res);
+    }
 
-    let response = client.report_resource(request).await?;
+    // [AC 2] Inicjalizacja połączenia gRPC
+    let server_addr = env::var("SERVER_ADDR").unwrap_or_else(|_| "http://[::1]:50051".to_string());
+    let mut client = connect_with_retry(server_addr, 5).await?;
 
-    info!("✅ Odpowiedź: {}", response.into_inner().message);
+    // [AC 1] Wyślij każdy zasób przez gRPC (z zachowaniem kolejności topologicznej)
+    let sorted_ids = graph.topological_sort();
+    info!("📤 Rozpoczynanie wysyłania zasobów do serwera...");
 
+    for resource_id in sorted_ids {
+        if let Some(resource) = graph.resources.get(&resource_id) {
+            info!("📡 Wysyłanie zasobu: {}", resource_id);
+            
+            let request = Request::new(resource.clone());
+            match client.report_resource(request).await {
+                Ok(response) => {
+                    info!("✅ Serwer potwierdził zasób {}: {}", resource_id, response.into_inner().message);
+                }
+                Err(e) => {
+                    error!("❌ Błąd podczas wysyłania zasobu {}: {}", resource_id, e);
+                }
+            }
+            // Mała przerwa między wysyłaniem
+            sleep(Duration::from_millis(100)).await;
+        }
+    }
+
+    info!("🏁 Zakończono skanowanie i wysyłanie danych.");
     Ok(())
 }
 
@@ -102,7 +127,6 @@ mod tests {
         let addr = "http://127.0.0.1:50052";
         let server_addr = "127.0.0.1:50052".parse().unwrap();
 
-        // Uruchamiamy serwer z opóźnieniem w tle
         tokio::spawn(async move {
             sleep(Duration::from_secs(3)).await;
             let scanner = MockScannerService;
@@ -113,15 +137,14 @@ mod tests {
                 .unwrap();
         });
 
-        // Próba połączenia powinna się udać po kilku próbach
         let result = connect_with_retry(addr.to_string(), 5).await;
-        assert!(result.is_ok(), "Połączenie powinno się udać po restarcie serwera");
+        assert!(result.is_ok());
     }
 
     #[tokio::test]
     async fn test_connect_with_retry_failure() {
-        let addr = "http://127.0.0.1:50053"; // Nikt tu nie słucha
+        let addr = "http://127.0.0.1:50053";
         let result = connect_with_retry(addr.to_string(), 2).await;
-        assert!(result.is_err(), "Połączenie powinno zwrócić błąd po wyczerpaniu prób");
+        assert!(result.is_err());
     }
 }
