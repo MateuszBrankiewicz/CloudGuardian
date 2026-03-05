@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package cloudguardian;
+option go_package = "./pb";
+
+service ScannerService{
+  rpc ReportResource(InfrastructureResource) returns (ScanResponse);
+
+  rpc ReportPIIFinding(PIIResult) returns (ScanResponse);
+}
+
+message InfrastructureResource {
+  string resource_id = 1;
+  string provider = 2;
+  string type = 3;
+  map<string, string> metadata = 4;
+  double estimated_cost = 5;
+  map<string, string> tags = 6;
+  bool is_public = 7;
+}
+
+message PIIResult {
+  string resource_id = 1;
+  string data_type = 2;
+  float confidence = 3;
+  int32 occurrence_count = 4;
+}
+
+message ScanResponse {
+  bool success = 1;
+  string message = 2;
+}
