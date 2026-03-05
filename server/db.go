@@ -21,6 +21,15 @@ CREATE TABLE IF NOT EXISTS resources (
     is_public BOOLEAN NOT NULL,
     dependencies JSONB,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS pii_findings (
+    id SERIAL PRIMARY KEY,
+    resource_id TEXT NOT NULL,
+    pii_type TEXT NOT NULL,
+    confidence FLOAT NOT NULL,
+    occurrence_count INT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );`
 
 type DB struct {
@@ -76,5 +85,14 @@ func (db *DB) SaveResource(r *pb.InfrastructureResource) error {
 		time.Now(),
 	)
 
+	return err
+}
+
+func (db *DB) SavePIIFinding(f *pb.PIIResult) error {
+	query := `
+		INSERT INTO pii_findings (resource_id, pii_type, confidence, occurrence_count)
+		VALUES ($1, $2, $3, $4)
+	`
+	_, err := db.Exec(query, f.ResourceId, f.DataType, f.Confidence, f.OccurrenceCount)
 	return err
 }

@@ -127,3 +127,36 @@ func TestReportResourcePersistence(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 75.0, cost)
 }
+
+func TestReportPIIFindingPersistence(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	s := &server{db: db}
+
+	req := &pb.PIIResult{
+		ResourceId:      "data.csv",
+		DataType:        "pesel",
+		Confidence:      1.0,
+		OccurrenceCount: 5,
+	}
+
+	resp, err := s.ReportPIIFinding(context.Background(), req)
+	assert.NoError(t, err)
+	assert.True(t, resp.Success)
+
+	// Verify in DB
+	var count int
+	err = db.Get(&count, "SELECT count(*) FROM pii_findings WHERE resource_id = $1 AND pii_type = $2", req.ResourceId, req.DataType)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, count)
+
+	var occ int
+	err = db.Get(&occ, "SELECT occurrence_count FROM pii_findings WHERE resource_id = $1", req.ResourceId)
+	assert.NoError(t, err)
+	assert.Equal(t, 5, occ)
+}
