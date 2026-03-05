@@ -18,9 +18,9 @@ import (
 func setupTestDB(t *testing.T) (*DB, func()) {
 	ctx := context.Background()
 
-	dbName := "postgres"
-	dbUser := "postgres"
-	dbPassword := "postgres"
+	dbName := "cloudguardian"
+	dbUser := "admin"
+	dbPassword := "password"
 
 	postgresContainer, err := postgres.Run(ctx,
 		"postgres:16-alpine",
@@ -94,6 +94,7 @@ func TestReportResourcePersistence(t *testing.T) {
 		EstimatedCost: 50.0,
 		Tags:          map[string]string{"env": "prod"},
 		IsPublic:      true,
+		Dependencies:  []string{"aws_vpc.main"},
 	}
 
 	// First save (Insert)
@@ -111,6 +112,11 @@ func TestReportResourcePersistence(t *testing.T) {
 	err = db.Get(&cost, "SELECT cost FROM resources WHERE resource_id = $1", req.ResourceId)
 	assert.NoError(t, err)
 	assert.Equal(t, 50.0, cost)
+
+	var depsJSON []byte
+	err = db.Get(&depsJSON, "SELECT dependencies FROM resources WHERE resource_id = $1", req.ResourceId)
+	assert.NoError(t, err)
+	assert.Contains(t, string(depsJSON), "aws_vpc.main")
 
 	// Update (Upsert)
 	req.EstimatedCost = 75.0
