@@ -1,8 +1,8 @@
+use crate::cloud_guardian::InfrastructureResource;
+use hcl::{Block, Body, Expression};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
-use crate::cloud_guardian::InfrastructureResource;
-use hcl::{Body, Block, Expression};
 use tracing::warn;
 
 pub fn parse_terraform_dir<P: AsRef<Path>>(dir: P) -> Vec<InfrastructureResource> {
@@ -70,13 +70,15 @@ fn extract_resource(block: &Block) -> Option<InfrastructureResource> {
                     is_public = *v;
                 }
             }
-            Expression::String(v) => {
-                if attr.key() == "acl" {
-                    if v.contains("public") {
+            Expression::String(v) => match attr.key() == "acl" {
+                true => match v.contains("public") {
+                    true => {
                         is_public = true;
                     }
-                }
-            }
+                    false => (),
+                },
+                false => (),
+            },
             Expression::Object(obj) => {
                 if attr.key() == "tags" {
                     for (k, v) in obj {
@@ -113,21 +115,30 @@ mod tests {
         if !path.exists() {
             path = Path::new("agent/tests/terraform_mock.tf");
         }
-        
+
         let resources = parse_terraform_file(path);
         assert_eq!(resources.len(), 3);
 
-        let s3 = resources.iter().find(|r| r.resource_id == "aws_s3_bucket.prod_data").expect("S3 not found");
+        let s3 = resources
+            .iter()
+            .find(|r| r.resource_id == "aws_s3_bucket.prod_data")
+            .expect("S3 not found");
         assert_eq!(s3.provider, "aws");
         assert_eq!(s3.r#type, "aws_s3_bucket");
         assert!(s3.is_public);
         assert_eq!(s3.tags.get("Environment"), Some(&"production".to_string()));
 
-        let db = resources.iter().find(|r| r.resource_id == "aws_db_instance.main_db").expect("DB not found");
+        let db = resources
+            .iter()
+            .find(|r| r.resource_id == "aws_db_instance.main_db")
+            .expect("DB not found");
         assert_eq!(db.r#type, "aws_db_instance");
         assert!(!db.is_public);
 
-        let private_s3 = resources.iter().find(|r| r.resource_id == "aws_s3_bucket.private_logs").expect("Private S3 not found");
+        let private_s3 = resources
+            .iter()
+            .find(|r| r.resource_id == "aws_s3_bucket.private_logs")
+            .expect("Private S3 not found");
         assert!(!private_s3.is_public);
     }
 }
