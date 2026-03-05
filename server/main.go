@@ -52,7 +52,7 @@ func (s *server) ReportPIIFinding(ctx context.Context, req *pb.PIIResult) (*pb.S
 func main() {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		dsn = "postgres://postgres:postgres@localhost:5432/cloudguardian?sslmode=disable"
+		dsn = "postgres://admin:password@localhost:5432/cloudguardian?sslmode=disable"
 	}
 
 	// [AC 2] Integracja z SQL

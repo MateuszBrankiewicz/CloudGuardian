@@ -18,9 +18,9 @@ import (
 func setupTestDB(t *testing.T) (*DB, func()) {
 	ctx := context.Background()
 
-	dbName := "postgres"
-	dbUser := "postgres"
-	dbPassword := "postgres"
+	dbName := "cloudguardian"
+	dbUser := "admin"
+	dbPassword := "password"
 
 	postgresContainer, err := postgres.Run(ctx,
 		"postgres:16-alpine",
