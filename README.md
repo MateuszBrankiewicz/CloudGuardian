@@ -72,3 +72,4 @@ System zawiera wbudowane skrypty do generowania ogromnych zbiorów danych (5000+
 
 ---
 *Projekt stworzony w ramach demonstracji potęgi połączenia Rust, Go i lokalnych modeli AI.*
+Ps. 100% vibe codowany
