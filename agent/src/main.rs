@@ -10,6 +10,8 @@ pub mod cloud_guardian {
     tonic::include_proto!("cloudguardian");
 }
 
+pub mod parser;
+
 use cloud_guardian::InfrastructureResource;
 use cloud_guardian::scanner_service_client::ScannerServiceClient;
 

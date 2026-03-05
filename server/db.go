@@ -1,0 +1,72 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"log"
+	"time"
+
+	"github.com/jmoiron/sqlx"
+	_ "github.com/lib/pq"
+	pb "github.com/MateuszBrankiewicz/cloudguardian/server/proto"
+)
+
+var schema = `
+CREATE TABLE IF NOT EXISTS resources (
+    resource_id TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    resource_type TEXT NOT NULL,
+    cost DOUBLE PRECISION NOT NULL,
+    tags JSONB,
+    is_public BOOLEAN NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);`
+
+type DB struct {
+	*sqlx.DB
+}
+
+func InitDB(dataSourceName string) (*DB, error) {
+	db, err := sqlx.Connect("postgres", dataSourceName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to db: %w", err)
+	}
+
+	if _, err := db.Exec(schema); err != nil {
+		return nil, fmt.Errorf("failed to initialize schema: %w", err)
+	}
+
+	log.Println("✅ Database initialized")
+	return &DB{db}, nil
+}
+
+func (db *DB) SaveResource(r *pb.InfrastructureResource) error {
+	tagsJSON, err := json.Marshal(r.Tags)
+	if err != nil {
+		return fmt.Errorf("failed to marshal tags: %w", err)
+	}
+
+	query := `
+		INSERT INTO resources (resource_id, provider, resource_type, cost, tags, is_public, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (resource_id) DO UPDATE SET
+			provider = EXCLUDED.provider,
+			resource_type = EXCLUDED.resource_type,
+			cost = EXCLUDED.cost,
+			tags = EXCLUDED.tags,
+			is_public = EXCLUDED.is_public,
+			updated_at = EXCLUDED.updated_at
+	`
+
+	_, err = db.Exec(query,
+		r.ResourceId,
+		r.Provider,
+		r.Type,
+		r.EstimatedCost,
+		tagsJSON,
+		r.IsPublic,
+		time.Now(),
+	)
+
+	return err
+}
