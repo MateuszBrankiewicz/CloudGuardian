@@ -104,9 +104,64 @@ func (db *DB) SavePIIFinding(f *pb.PIIResult) error {
 }
 
 type PIIFinding struct {
-	PiiType         string  `db:"pii_type"`
-	OccurrenceCount int32   `db:"occurrence_count"`
-	Confidence      float32 `db:"confidence"`
+	ResourceId      string  `db:"resource_id" json:"resource_id"`
+	PiiType         string  `db:"pii_type" json:"pii_type"`
+	OccurrenceCount int32   `db:"occurrence_count" json:"occurrence_count"`
+	Confidence      float32 `db:"confidence" json:"confidence"`
+}
+
+type ResourceRow struct {
+	ResourceId       string           `db:"resource_id" json:"resource_id"`
+	Provider         string           `db:"provider" json:"provider"`
+	ResourceType     string           `db:"resource_type" json:"resource_type"`
+	Cost             float64          `db:"cost" json:"cost"`
+	Tags             *json.RawMessage `db:"tags" json:"tags"`
+	IsPublic         bool             `db:"is_public" json:"is_public"`
+	Dependencies     *json.RawMessage `db:"dependencies" json:"dependencies"`
+	AiRecommendation sql.NullString   `db:"ai_recommendation" json:"-"`
+	AiRecString      string           `json:"ai_recommendation"`
+	UpdatedAt        time.Time        `db:"updated_at" json:"updated_at"`
+	HasPII           bool             `db:"has_pii" json:"has_pii"`
+}
+
+func (db *DB) GetAllResources() ([]ResourceRow, error) {
+	var rows []ResourceRow
+	query := `
+		SELECT 
+			resource_id, provider, resource_type, cost, tags, is_public, dependencies, ai_recommendation, updated_at,
+			EXISTS(SELECT 1 FROM pii_findings f WHERE f.resource_id = resources.resource_id) as has_pii
+		FROM resources
+	`
+	err := db.Select(&rows, query)
+	if err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		if rows[i].AiRecommendation.Valid {
+			rows[i].AiRecString = rows[i].AiRecommendation.String
+		}
+	}
+	return rows, nil
+}
+
+func (db *DB) GetAllPIIFindings() ([]PIIFinding, error) {
+	var findings []PIIFinding
+	err := db.Select(&findings, "SELECT resource_id, pii_type, occurrence_count, confidence FROM pii_findings")
+	return findings, err
+}
+
+type Summary struct {
+	TotalCost         float64 `json:"total_cost"`
+	TotalPII          int     `json:"total_pii"`
+	HighRiskResources int     `json:"high_risk_resources"`
+}
+
+func (db *DB) GetSummary() (Summary, error) {
+	var s Summary
+	db.Get(&s.TotalCost, "SELECT COALESCE(SUM(cost), 0) FROM resources")
+	db.Get(&s.TotalPII, "SELECT COALESCE(SUM(occurrence_count), 0) FROM pii_findings")
+	db.Get(&s.HighRiskResources, "SELECT COUNT(DISTINCT resource_id) FROM resources WHERE is_public = true AND resource_id IN (SELECT resource_id FROM pii_findings)")
+	return s, nil
 }
 
 func (db *DB) GetResourceWithFindings(resourceID string) (*pb.InfrastructureResource, []PIIFinding, error) {
@@ -130,7 +185,7 @@ func (db *DB) GetResourceWithFindings(resourceID string) (*pb.InfrastructureReso
 	}
 
 	var findings []PIIFinding
-	err = db.Select(&findings, "SELECT pii_type, occurrence_count, confidence FROM pii_findings WHERE resource_id = $1", resourceID)
+	err = db.Select(&findings, "SELECT resource_id, pii_type, occurrence_count, confidence FROM pii_findings WHERE resource_id = $1", resourceID)
 	
 	return &res, findings, err
 }

@@ -7,17 +7,21 @@ use tracing::warn;
 
 pub fn parse_terraform_dir<P: AsRef<Path>>(dir: P) -> Vec<InfrastructureResource> {
     let mut resources = Vec::new();
+    visit_dirs_tf(dir.as_ref(), &mut resources);
+    resources
+}
 
+fn visit_dirs_tf(dir: &Path, resources: &mut Vec<InfrastructureResource>) {
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().and_then(|s| s.to_str()) == Some("tf") {
+            if path.is_dir() {
+                visit_dirs_tf(&path, resources);
+            } else if path.extension().and_then(|s| s.to_str()) == Some("tf") {
                 resources.extend(parse_terraform_file(&path));
             }
         }
     }
-
-    resources
 }
 
 pub fn parse_terraform_file<P: AsRef<Path>>(path: P) -> Vec<InfrastructureResource> {
@@ -63,11 +67,8 @@ fn extract_resource(block: &Block) -> Option<InfrastructureResource> {
     let mut tags = HashMap::new();
     let mut dependencies = Vec::new();
 
-    // Check direct attributes
     for attr in block.body().attributes() {
         let expr = attr.expr();
-        
-        // Find dependencies in the expression
         find_traversals(expr, &mut dependencies);
 
         match expr {
@@ -110,16 +111,11 @@ fn extract_resource(block: &Block) -> Option<InfrastructureResource> {
     })
 }
 
-/// Recursively find resource traversals (references) in an HCL expression
 fn find_traversals(expr: &Expression, dependencies: &mut Vec<String>) {
     match expr {
         Expression::Traversal(traversal) => {
-            // A resource ref like `aws_vpc.main.id`
-            // traversal.expr is the base (e.g. Variable("aws_vpc"))
-            // traversal.operators has the rest (e.g. [GetAttr("main"), GetAttr("id")])
             let base = traversal.expr.to_string();
             let mut parts = vec![base];
-            
             for op in &traversal.operators {
                 match op {
                     hcl::expr::TraversalOperator::GetAttr(attr) => {
@@ -131,7 +127,6 @@ fn find_traversals(expr: &Expression, dependencies: &mut Vec<String>) {
                     _ => {}
                 }
             }
-
             if parts.len() >= 2 {
                 let resource_ref = format!("{}.{}", parts[0], parts[1]);
                 if !dependencies.contains(&resource_ref) {
@@ -163,7 +158,6 @@ mod tests {
         if !path.exists() {
             path = Path::new("agent/tests/terraform_mock.tf");
         }
-        
         let resources = parse_terraform_file(path);
         assert_eq!(resources.len(), 3);
     }
@@ -180,7 +174,6 @@ mod tests {
         "#;
         let body: Body = hcl::from_str(hcl).unwrap();
         let blocks: Vec<Block> = body.into_blocks().into_iter().filter(|b| b.identifier() == "resource").collect();
-        
         let sg_res = extract_resource(&blocks[0]).unwrap();
         assert_eq!(sg_res.resource_id, "aws_security_group.web_sg");
         assert!(sg_res.dependencies.contains(&"aws_vpc.main".to_string()));

@@ -3,7 +3,7 @@ use rayon::prelude::*;
 use std::sync::Arc;
 use crate::cloud_guardian::PiiResult;
 use std::collections::HashMap;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use tracing::{info, warn};
@@ -25,11 +25,17 @@ impl PiiEngine {
     /// Scans a directory for PII using data sampling (e.g., first 1000 lines).
     pub fn scan_directory_for_pii<P: AsRef<Path>>(&self, dir: P, sample_lines: usize) -> Vec<PiiResult> {
         let mut all_results = Vec::new();
+        self.visit_dirs_pii(dir.as_ref(), &mut all_results, sample_lines);
+        all_results
+    }
 
-        if let Ok(entries) = std::fs::read_dir(dir) {
+    fn visit_dirs_pii(&self, dir: &Path, all_results: &mut Vec<PiiResult>, sample_lines: usize) {
+        if let Ok(entries) = fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.is_file() {
+                if path.is_dir() {
+                    self.visit_dirs_pii(&path, all_results, sample_lines);
+                } else if path.is_file() {
                     let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
                     if matches!(ext, "csv" | "sql" | "txt" | "json") {
                         info!("🔍 Pobieranie próbek z pliku: {:?}", path);
@@ -39,8 +45,6 @@ impl PiiEngine {
                 }
             }
         }
-
-        all_results
     }
 
     fn scan_file_sampled<P: AsRef<Path>>(&self, path: P, sample_lines: usize) -> Vec<PiiResult> {

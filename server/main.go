@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -58,9 +59,67 @@ func (s *server) ReportPIIFinding(ctx context.Context, req *pb.PIIResult) (*pb.S
 	}, nil
 }
 
+// CORS Middleware
+func enableCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *server) handleResources(w http.ResponseWriter, r *http.Request) {
+	log.Printf("GET %s", r.URL.Path)
+	if strings.HasSuffix(r.URL.Path, "/fix") {
+		s.handleFix(w, r)
+		return
+	}
+
+	// If it's just /api/resources/ or /api/resources
+	if r.URL.Path == "/api/resources/" || r.URL.Path == "/api/resources" {
+		res, err := s.db.GetAllResources()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(res)
+		return
+	}
+
+	http.NotFound(w, r)
+}
+
+func (s *server) handlePII(w http.ResponseWriter, r *http.Request) {
+	log.Printf("GET %s", r.URL.Path)
+	findings, err := s.db.GetAllPIIFindings()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(findings)
+}
+
+func (s *server) handleSummary(w http.ResponseWriter, r *http.Request) {
+	log.Printf("GET %s", r.URL.Path)
+	summary, err := s.db.GetSummary()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(summary)
+}
+
 func (s *server) handleFix(w http.ResponseWriter, r *http.Request) {
-	// Simple path parsing for /api/resources/:id/fix
 	parts := strings.Split(r.URL.Path, "/")
+	// /api/resources/:id/fix -> length 5
 	if len(parts) < 5 {
 		http.Error(w, "Invalid path", http.StatusBadRequest)
 		return
@@ -75,7 +134,6 @@ func (s *server) handleFix(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Map findings to ai.PIIFinding
 	aiFindings := make([]ai.PIIFinding, len(findings))
 	for i, f := range findings {
 		aiFindings[i] = ai.PIIFinding{
@@ -118,11 +176,14 @@ func main() {
 		advisor: advisor,
 	}
 
-	// [AC 2] HTTP API for remediation
-	http.HandleFunc("/api/resources/", srv.handleFix)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/resources/", srv.handleResources)
+	mux.HandleFunc("/api/pii", srv.handlePII)
+	mux.HandleFunc("/api/summary", srv.handleSummary)
+
 	go func() {
 		log.Println("🌐 API HTTP nasłuchuje na :8080")
-		if err := http.ListenAndServe(":8080", nil); err != nil {
+		if err := http.ListenAndServe(":8080", enableCORS(mux)); err != nil {
 			log.Fatalf("❌ Błąd serwera HTTP: %v", err)
 		}
 	}()
