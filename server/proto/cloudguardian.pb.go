@@ -30,6 +30,7 @@ type InfrastructureResource struct {
 	EstimatedCost float64                `protobuf:"fixed64,5,opt,name=estimated_cost,json=estimatedCost,proto3" json:"estimated_cost,omitempty"`
 	Tags          map[string]string      `protobuf:"bytes,6,rep,name=tags,proto3" json:"tags,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	IsPublic      bool                   `protobuf:"varint,7,opt,name=is_public,json=isPublic,proto3" json:"is_public,omitempty"`
+	Dependencies  []string               `protobuf:"bytes,8,rep,name=dependencies,proto3" json:"dependencies,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -111,6 +112,13 @@ func (x *InfrastructureResource) GetIsPublic() bool {
 		return x.IsPublic
 	}
 	return false
+}
+
+func (x *InfrastructureResource) GetDependencies() []string {
+	if x != nil {
+		return x.Dependencies
+	}
+	return nil
 }
 
 type PIIResult struct {
@@ -237,7 +245,7 @@ var File_cloudguardian_proto protoreflect.FileDescriptor
 
 const file_cloudguardian_proto_rawDesc = "" +
 	"\n" +
-	"\x13cloudguardian.proto\x12\rcloudguardian\"\xb9\x03\n" +
+	"\x13cloudguardian.proto\x12\rcloudguardian\"\xdd\x03\n" +
 	"\x16InfrastructureResource\x12\x1f\n" +
 	"\vresource_id\x18\x01 \x01(\tR\n" +
 	"resourceId\x12\x1a\n" +
@@ -246,7 +254,8 @@ const file_cloudguardian_proto_rawDesc = "" +
 	"\bmetadata\x18\x04 \x03(\v23.cloudguardian.InfrastructureResource.MetadataEntryR\bmetadata\x12%\n" +
 	"\x0eestimated_cost\x18\x05 \x01(\x01R\restimatedCost\x12C\n" +
 	"\x04tags\x18\x06 \x03(\v2/.cloudguardian.InfrastructureResource.TagsEntryR\x04tags\x12\x1b\n" +
-	"\tis_public\x18\a \x01(\bR\bisPublic\x1a;\n" +
+	"\tis_public\x18\a \x01(\bR\bisPublic\x12\"\n" +
+	"\fdependencies\x18\b \x03(\tR\fdependencies\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a7\n" +
