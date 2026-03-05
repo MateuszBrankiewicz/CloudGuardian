@@ -42,10 +42,16 @@ func (s *server) ReportResource(ctx context.Context, req *pb.InfrastructureResou
 }
 
 func (s *server) ReportPIIFinding(ctx context.Context, req *pb.PIIResult) (*pb.ScanResponse, error) {
-	log.Printf("📥 Otrzymano PII: [%s] %s - Pewność: %.2f", req.ResourceId, req.DataType, req.Confidence)
+	log.Printf("📥 Otrzymano PII: [%s] %s - Pewność: %.2f (Ilość: %d)", req.ResourceId, req.DataType, req.Confidence, req.OccurrenceCount)
+	
+	if err := s.db.SavePIIFinding(req); err != nil {
+		log.Printf("❌ Błąd zapisu PII do bazy: %v", err)
+		return nil, status.Errorf(codes.Internal, "failed to save PII finding: %v", err)
+	}
+
 	return &pb.ScanResponse{
 		Success: true,
-		Message: "PII zarejestrowany poprawnie!",
+		Message: "PII zarejestrowany poprawnie w bazie danych!",
 	}, nil
 }
 

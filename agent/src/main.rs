@@ -56,7 +56,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         "."
     };
 
-    info!("🔍 Skanowanie folderu: {}", scan_path);
+    info!("🔍 Skanowanie folderu (IaC): {}", scan_path);
 
     // [AC 1] Pipeline: Skanuj folder -> Buduj Graf
     let resources = parser::parse_terraform_dir(scan_path);
@@ -88,8 +88,26 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     error!("❌ Błąd podczas wysyłania zasobu {}: {}", resource_id, e);
                 }
             }
-            // Mała przerwa między wysyłaniem
             sleep(Duration::from_millis(100)).await;
+        }
+    }
+
+    // [US-3.3] Skanowanie PII
+    info!("🔍 Skanowanie folderu (PII): {}", scan_path);
+    let pii_engine = pii::PiiEngine::new();
+    let pii_findings = pii_engine.scan_directory_for_pii(scan_path, 1000);
+    info!("📦 Znaleziono {} grup trafień PII", pii_findings.len());
+
+    for finding in pii_findings {
+        info!("📡 Wysyłanie znaleziska PII: {} ({})", finding.data_type, finding.resource_id);
+        let request = Request::new(finding.clone());
+        match client.report_pii_finding(request).await {
+            Ok(response) => {
+                info!("✅ Serwer potwierdził PII: {}", response.into_inner().message);
+            }
+            Err(e) => {
+                error!("❌ Błąd podczas wysyłania PII: {}", e);
+            }
         }
     }
 

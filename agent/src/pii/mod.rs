@@ -3,6 +3,10 @@ use rayon::prelude::*;
 use std::sync::Arc;
 use crate::cloud_guardian::PiiResult;
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::path::Path;
+use tracing::{info, warn};
 
 pub struct PiiEngine {
     patterns: Vec<(String, Regex)>,
@@ -18,6 +22,46 @@ impl PiiEngine {
         Self { patterns }
     }
 
+    /// Scans a directory for PII using data sampling (e.g., first 1000 lines).
+    pub fn scan_directory_for_pii<P: AsRef<Path>>(&self, dir: P, sample_lines: usize) -> Vec<PiiResult> {
+        let mut all_results = Vec::new();
+
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+                    if matches!(ext, "csv" | "sql" | "txt" | "json") {
+                        info!("🔍 Pobieranie próbek z pliku: {:?}", path);
+                        let results = self.scan_file_sampled(&path, sample_lines);
+                        all_results.extend(results);
+                    }
+                }
+            }
+        }
+
+        all_results
+    }
+
+    fn scan_file_sampled<P: AsRef<Path>>(&self, path: P, sample_lines: usize) -> Vec<PiiResult> {
+        let file = match File::open(&path) {
+            Ok(f) => f,
+            Err(e) => {
+                warn!("Could not open file {:?}: {}", path.as_ref(), e);
+                return Vec::new();
+            }
+        };
+
+        let reader = BufReader::new(file);
+        let lines: Vec<String> = reader.lines()
+            .take(sample_lines)
+            .filter_map(|l| l.ok())
+            .collect();
+
+        let resource_id = path.as_ref().to_string_lossy().to_string();
+        self.scan_lines_parallel(lines, &resource_id)
+    }
+
     /// Scans a single string for all known PII patterns and validates them.
     pub fn scan_text(&self, text: &str, resource_id: &str) -> Vec<PiiResult> {
         let mut results = Vec::new();
@@ -26,20 +70,17 @@ impl PiiEngine {
             for mat in regex.find_iter(text) {
                 let matched_str = mat.as_str();
                 
-                // [AC 1] Luhn for credit cards
                 if data_type == "credit_card" {
                     let digits: String = matched_str.chars().filter(|c| c.is_ascii_digit()).collect();
                     if is_luhn_valid(&digits) {
                         count += 1;
                     }
                 } 
-                // [AC 2] PESEL validation
                 else if data_type == "pesel" {
                     if is_pesel_valid(matched_str) {
                         count += 1;
                     }
                 }
-                // Email (no extra validation for now)
                 else {
                     count += 1;
                 }
@@ -134,24 +175,16 @@ mod tests {
 
     #[test]
     fn test_luhn_validation() {
-        // Valid Luhn numbers
         assert!(is_luhn_valid("79927398713")); 
         assert!(is_luhn_valid("49927398716"));
-        
-        // Valid 16-digit cards (mock/test cards often follow Luhn)
         assert!(is_luhn_valid("4242424242424242"));
-        
-        // Invalid
         assert!(!is_luhn_valid("4242424242424241"));
     }
 
     #[test]
     fn test_pesel_validation() {
-        // Valid PESEL (from online generators/wikis)
         assert!(is_pesel_valid("44051401359")); 
         assert!(is_pesel_valid("02070803628")); 
-        
-        // Invalid
         assert!(!is_pesel_valid("44051401358")); 
         assert!(!is_pesel_valid("12345678901"));
     }
@@ -159,8 +192,6 @@ mod tests {
     #[test]
     fn test_pii_validation_integration() {
         let engine = PiiEngine::new();
-        // 4242424242424242 is valid Luhn.
-        // 1111222233334441 is NOT valid Luhn.
         let text = "Card: 4242424242424242, Fake: 1111222233334441, PESEL: 44051401359";
         let results = engine.scan_text(text, "test-resource");
 
