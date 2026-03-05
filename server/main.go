@@ -106,8 +106,12 @@ func main() {
 	}
 
 	ollamaURL := os.Getenv("OLLAMA_URL")
+	ollamaModel := os.Getenv("OLLAMA_MODEL")
+	if ollamaModel == "" {
+		ollamaModel = "llama3:latest"
+	}
 	ollamaClient := ai.NewOllamaClient(ollamaURL)
-	advisor := ai.NewAdvisor(ollamaClient, "llama3")
+	advisor := ai.NewAdvisor(ollamaClient, ollamaModel)
 
 	srv := &server{
 		db:      db,

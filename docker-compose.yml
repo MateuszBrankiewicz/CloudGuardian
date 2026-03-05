@@ -16,5 +16,9 @@ services:
 
   ollama:
     image: ollama/ollama:latest
+    container_name: cloudguardian-ollama-1
     ports:
       - "11434:11434"
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1

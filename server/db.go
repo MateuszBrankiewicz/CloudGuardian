@@ -48,6 +48,10 @@ func InitDB(dataSourceName string) (*DB, error) {
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}
 
+	// Simple migrations: add columns if they don't exist
+	_, _ = db.Exec("ALTER TABLE resources ADD COLUMN IF NOT EXISTS ai_recommendation TEXT")
+	_, _ = db.Exec("ALTER TABLE resources ADD COLUMN IF NOT EXISTS dependencies JSONB")
+
 	log.Println("✅ Database initialized")
 	return &DB{db}, nil
 }

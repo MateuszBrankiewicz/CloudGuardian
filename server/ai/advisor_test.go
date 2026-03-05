@@ -15,7 +15,7 @@ func TestGenerateRemediationPrompt(t *testing.T) {
 	// For now, let's just ensure the code compiles and we have a test.
 	
 	client := NewOllamaClient("http://localhost:11434")
-	advisor := NewAdvisor(client, "llama3")
+	advisor := NewAdvisor(client, "llama3:latest")
 
 	res := &pb.InfrastructureResource{
 		ResourceId: "aws_s3_bucket.test",

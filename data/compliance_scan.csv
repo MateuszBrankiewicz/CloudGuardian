@@ -1,0 +1,5 @@
+id,source,content,metadata
+101,hr_portal_db,"User: Adam Nowak, PESEL: 90010112345, Salary: 15000",HR_CONFIDENTIAL
+102,user_uploads_backup,"File: id_card_scan.jpg, OCR_Found: 82031599887",SCAN_RESULT
+103,user_uploads_backup,"Payment_Log: CC_VISA: 4532150011223344",PAYMENT_GATEWAY
+104,legacy_app_server,"Internal_Log: Login success for admin@company.com",LOG_INFO

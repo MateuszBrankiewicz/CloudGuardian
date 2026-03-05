@@ -17,7 +17,7 @@ type Advisor struct {
 
 func NewAdvisor(ollama *OllamaClient, model string) *Advisor {
 	if model == "" {
-		model = "llama3"
+		model = "llama3:latest"
 	}
 	return &Advisor{
 		Ollama: ollama,
