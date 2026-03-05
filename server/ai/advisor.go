@@ -5,6 +5,11 @@ import (
 	pb "github.com/MateuszBrankiewicz/cloudguardian/server/proto"
 )
 
+type PIIFinding struct {
+	PiiType         string
+	OccurrenceCount int32
+}
+
 type Advisor struct {
 	Ollama *OllamaClient
 	Model  string
@@ -39,18 +44,42 @@ Wykryte PII w tym zasobie:
 `, res.ResourceId, res.Provider, res.Type, res.EstimatedCost, res.IsPublic, res.Tags)
 
 	for _, f := range findings {
-		userPrompt += fmt.Sprintf("- Typ: %s, Ilość: %d
-", f.PiiType, f.OccurrenceCount)
+		userPrompt += fmt.Sprintf("- Typ: %s, Ilość: %d\n", f.PiiType, f.OccurrenceCount)
 	}
 
 	if len(findings) == 0 {
-		userPrompt += "- Brak wykrytych PII.
-"
+		userPrompt += "- Brak wykrytych PII.\n"
 	}
 
-	fullPrompt := fmt.Sprintf("%s
-
-%s", systemPrompt, userPrompt)
+	fullPrompt := fmt.Sprintf("%s\n\n%s", systemPrompt, userPrompt)
 	
+	return a.Ollama.Generate(a.Model, fullPrompt)
+}
+
+func (a *Advisor) GenerateRemediation(res *pb.InfrastructureResource, findings []PIIFinding) (string, error) {
+	systemPrompt := `Jesteś ekspertem od Terraform i Cyberbezpieczeństwa. 
+Twoim zadaniem jest wygenerowanie poprawionego bloku kodu Terraform (HCL) dla zasobu, 
+który ma luki bezpieczeństwa. 
+Zwróć TYLKO blok kodu Terraform wewnątrz znaczników ` + "```hcl" + `
+...
+` + "```" + `. 
+Nie dodawaj żadnych wyjaśnień poza kodem. 
+Upewnij się, że dodajesz brakujące zabezpieczenia (np. szyfrowanie, brak publicznego dostępu).`
+
+	userPrompt := fmt.Sprintf(`Oto obecne dane zasobu:
+- ID: %s
+- Typ: %s
+- Dostawca: %s
+- Czy publiczny: %v
+
+Wykryte PII:
+`, res.ResourceId, res.Type, res.Provider, res.IsPublic)
+
+	for _, f := range findings {
+		userPrompt += fmt.Sprintf("- %s (%d wystąpień)\n", f.PiiType, f.OccurrenceCount)
+	}
+
+	fullPrompt := fmt.Sprintf("%s\n\n%s", systemPrompt, userPrompt)
+
 	return a.Ollama.Generate(a.Model, fullPrompt)
 }
